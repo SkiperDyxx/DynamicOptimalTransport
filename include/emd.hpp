@@ -12,8 +12,8 @@
 #include <ext/pb_ds/priority_queue.hpp>
 #include "lct.hpp"
 #include "ett.hpp"
-#include "full_bipartitegraph.h"
-#include "network_simplex_simple.h"
+#include "network_simplex/full_bipartitegraph.h"
+#include "network_simplex/network_simplex_simple.h"
 #ifdef TIME_LOG
 #include <fstream>
 #include <chrono>

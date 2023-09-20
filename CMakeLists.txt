@@ -17,13 +17,11 @@ else()
 endif()
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    message("GCC")
+    message("Using GCC")
 elseif (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    message("Clang")
-elseif (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-    message("MSVC")
+    message("Using Clang")
 else()
-    message("Unknown compiler")
+	message(FATAL_ERROR "Unknown compiler. Please use GCC or Clang")
 endif()
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Ofast -Wall -fopenmp -fopenmp-simd -funsafe-math-optimizations -DNDEBUG -pipe -shared -fPIC")
@@ -31,7 +29,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Ofast -Wall -fopenmp -fopenmp-simd -fun
 # Update paths for source, include, and third-party directories
 add_library(dot MODULE src/pybind11.cpp)
 target_include_directories(dot PRIVATE include)
-target_include_directories(dot PRIVATE third_party/network_simplex)
+target_include_directories(dot PRIVATE third_party)
 
 set_target_properties(dot PROPERTIES PREFIX "")
 set_target_properties(dot PROPERTIES SUFFIX ${PYTHON_EXTENSION_SUFFIX})
