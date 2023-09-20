@@ -1,7 +1,7 @@
 #include <type_traits>
 #include <vector>
-#include "full_bipartitegraph.h"
-#include "network_simplex_simple.h"
+#include "network_simplex/full_bipartitegraph.h"
+#include "network_simplex/network_simplex_simple.h"
 
 auto network_simplex(const auto &p, const auto &f, auto dist) {
 	size_t n = f.size();
