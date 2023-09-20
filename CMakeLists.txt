@@ -29,7 +29,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Ofast -Wall -fopenmp -fopenmp-simd -fun
 # Update paths for source, include, and third-party directories
 add_library(dot MODULE src/pybind11.cpp)
 target_include_directories(dot PRIVATE include)
-target_include_directories(dot PRIVATE third_party)
+target_include_directories(dot SYSTEM PRIVATE third_party)
 
 set_target_properties(dot PROPERTIES PREFIX "")
 set_target_properties(dot PROPERTIES SUFFIX ${PYTHON_EXTENSION_SUFFIX})
