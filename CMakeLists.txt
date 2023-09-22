@@ -36,3 +36,9 @@ set_target_properties(dot PROPERTIES SUFFIX ${PYTHON_EXTENSION_SUFFIX})
 target_include_directories(dot PRIVATE ${Python_INCLUDE_DIRS})
 target_link_libraries(dot PRIVATE pybind11::module ${Python_LIBRARIES})
 
+# Define the installation path
+set(PYTHON_INSTALL_DIR ${Python_SITEARCH})
+
+# Install the library to the Python environment's site-packages directory
+install(TARGETS dot LIBRARY DESTINATION ${PYTHON_INSTALL_DIR})
+
