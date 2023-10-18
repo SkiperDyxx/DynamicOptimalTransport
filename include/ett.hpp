@@ -54,7 +54,6 @@ class ett {
 	struct allocator {
 		size_t _Cap, _Size, unallocatedNodeChunkSize, unallocatedPNodeChunkSize;
 		static constexpr size_t CHUNK = std::max(0x80000000ul, 0x4000000ul);
-		pnode** pvex;
 		pnode *top;
 		node* unallocatedNodeChunk;
 		pnode* unallocatedPNodeChunk;
@@ -72,13 +71,13 @@ class ett {
 		T& operator [](IndexType j);
 	};
 	T get_value(typename node::DataType val);
-	static constexpr IndexType EDGE = IndexType(-1);
 	// There is no need for lazy tags & push downs,
-	// as the real value of each node is its real value plus the potential difference
+	// as the data of each node is its real value plus the potential difference
 	// and the potential have already been stored
 	void _reserve(size_t capacity);
 	inline void push_up_node(node *ptr);
 	inline void push_up_node(node *cr, node *cd);
+	pnode* get_pnode(IndexType u, vector <HeightType> &qht, node* head[]);
 public:
 #ifndef NDEBUG
 	static std::mt19937_64 rng;
@@ -119,16 +118,8 @@ void ett<T, IndexType>::update_node(IndexType u) {
 	++push_up_funcs;
 #endif
 	static node *uu[64];
-	std::fill(uu, uu + 64, nullptr);
-	static std::vector <HeightType> hu; hu.clear(); hu.reserve(3 * size() - 2);
-	const pnode* const puu = alloc->pvex[u];
-	for (const pnode *p = puu; ; ) {
-		p = p->right;
-		hu.push_back(p->ht);
-		std::iota(uu, uu + p->ht, p->ptr);
-		if (p == puu)
-			break;
-	}
+	static std::vector <HeightType> hu; hu.reserve(2 * size() - 2);
+	pnode* const puu = get_pnode(u, hu, uu);
 	const HeightType maxhu = std::find(uu, uu + 64, nullptr) - uu;
 	static std::pair <node*, node*> iter[64];
 	for (HeightType i = 1; i < maxhu; ++i)
@@ -155,13 +146,16 @@ void ett<T, IndexType>::update_edge(const typename ett<T, IndexType>::pnode *con
 	std::fill(vv, vv + 64, nullptr);
 	static std::vector <HeightType> hu, hv;
 	hu.clear(); hv.clear();
-	const size_t N = size(), M = 3 * N - 2;
+	const size_t N = size(), M = 2 * N - 2;
 	hu.reserve(M); hv.reserve(M);
+	std::vector <uint8_t> vis(N);
 	for (const pnode *p = pvv; p != puu; p = p->right) {
 		std::iota(uu, uu + p->ht, p->ptr);
 		hu.push_back(p->ht);
-		if (p->data() != EDGE)
-			potential[p->data()] -= out_dated_value;
+		if (auto u = p->data(); !vis[u]) {
+			potential[u] -= out_dated_value;
+			vis[u] = true;
+		}
 	}
 	for (const pnode *p = puu; p != pvv; p = p->right) {
 		std::iota(vv, vv + p->ht, p->ptr);
@@ -224,26 +218,19 @@ std::tuple <T, IndexType, IndexType> ett<T, IndexType>::min() {
 	std::tuple <T, IndexType, IndexType> ret;
 	std::get<1>(ret) = p->data.i;
 	std::get<2>(ret) = p->data.j;
-	assert((p->data.i == EDGE) == (p->data.j == EDGE));
-	std::get<0>(ret) = p->data.i != EDGE ? get_value(p->data) : std::numeric_limits<T>::max();
-	for (const node *q = p->right; q != p; q = q->right, ++n) {
-		assert((q->data.i == EDGE) == (q->data.j == EDGE));
-		if (q->data.i != EDGE)
-			if (auto val = std::make_tuple(get_value(q->data), q->data.i, q->data.j); val < ret)
-				ret = val;
-	}
+	std::get<0>(ret) = get_value(p->data);
+	for (const node *q = p->right; q != p; q = q->right, ++n)
+		if (auto val = std::make_tuple(get_value(q->data), q->data.i, q->data.j); val < ret)
+			ret = val;
 #ifndef NDEBUG
 	const node *const ptr = p;
 #endif
 	for (size_t i = 1; i < n; ++i) {
 		p = p->down;
 		const node *q = p;
-		for (size_t j = 0; j < n; ++j, q = q->right) {
-			assert((q->data.i == EDGE) == (q->data.j == EDGE));
-			if (q->data.i != EDGE)
-				if (auto val = std::make_tuple(get_value(q->data), q->data.i, q->data.j); val < ret)
-					ret = val;
-		}
+		for (size_t j = 0; j < n; ++j, q = q->right)
+			if (auto val = std::make_tuple(get_value(q->data), q->data.i, q->data.j); val < ret)
+				ret = val;
 		assert(q == p);
 	}
 	assert(p->down == ptr);
@@ -255,37 +242,222 @@ std::tuple <T, IndexType, IndexType> ett<T, IndexType>::cut(pnode *puu, pnode *p
 #ifdef PUSH_UP_LOG
 	++push_up_funcs;
 #endif
+	const size_t n = size(), m = 2 * n - 2;
+	if (n == 2) {
+		assert(puu->right == pvv);
+		assert(pvv->right == puu);
+		if (flag) {
+			std::swap(potential[0], potential[1]);
+			if (puu->ptr->data.i == 0) {
+				assert(potential[0] >= potential[1]);
+				return std::tuple <T, IndexType, IndexType>(2 * (potential[0] - potential[1]), 1, 0);
+			}
+			else {
+				assert(potential[0] <= potential[1]);
+				return std::tuple <T, IndexType, IndexType>(2 * (potential[1] - potential[0]), 0, 1);
+			}
+		}
+		else
+			return std::tuple <T, IndexType, IndexType>(0, 0, 0);
+	}
 	pnode *pij = pvv, *pji = puu;
 	auto iter_right_func = [](node* &v) { v = v->right; }, iter_down_func = [](node* &v) { v = v->down; };
-	const HeightType huu = puu->ht, hvv = pvv->ht;
+	HeightType huu = puu->ht, hvv = pvv->ht;
 	static node *uu[64], *vv[64], *uv[64], *vu[64];
 	std::fill(uu, uu + 64, nullptr);
 	std::fill(vv, vv + 64, nullptr);
-	const size_t n = size(), m = 3 * n - 2;
 	static std::vector <HeightType> hu, hv;
 	hu.clear(); hv.clear(); hu.reserve(2 * m); hv.reserve(2 * m);
-	do {
+	while (pij->right != puu) {
 		pij = pij->right;
 		hu.push_back(pij->ht);
 		std::iota(uu, uu + pij->ht, pij->ptr);
-	} while (pij->right != puu);
+	}
 	const HeightType maxhu = std::find(uu, uu + 64, nullptr) - uu;
 	std::copy(uu, uu + maxhu, uv);
 	std::copy(uu, uu + maxhu, vu);
-	std::for_each(uv, uv + std::min(maxhu, huu), iter_right_func);
-	std::for_each(vu, vu + std::min(maxhu, huu), iter_down_func);
-	do {
+	while (pji->right != pvv) {
 		pji = pji->right;
 		hv.push_back(pji->ht);
 		const HeightType h = std::min(pji->ht, maxhu);
 		std::iota(vv, vv + pji->ht, pji->ptr);
 		std::for_each(uv, uv + h, iter_right_func);
 		std::for_each(vu, vu + h, iter_down_func);
-	} while (pji->right != pvv);
+	}
 	assert(hu.size() + hv.size() == m - 2);
 	const HeightType maxhv = std::find(vv, vv + 64, nullptr) - vv, minh = std::min(maxhu, maxhv);
 	static node *iter_above[64], *iter_below[64], *iter_left[64], *iter_right[64];
 	static node *quud[64], *quur[64], *quvd[64], *quvr[64], *qvud[64], *qvur[64], *qvvr[64], *qvvd[64];
+	if (maxhu == 0 || maxhv == 0) {
+		node *quu = puu->ptr, *qvv = pvv->ptr;
+		if (maxhu == 0) {
+			std::swap(quu, qvv);
+			std::swap(huu, hvv);
+			std::copy(vv, vv + maxhv, uv);
+			std::copy(vv, vv + maxhv, vu);
+		}
+		HeightType maxh = std::max(maxhu, maxhv);
+		for (HeightType h = 0; h < std::min(maxh, huu); ++h) {
+			uv[i]->down = uv[i]->down->down;
+			vu[i]->right = vu[i]->right->right;
+			if (h < hvv) {
+				uv[i]->down = uv[i]->down->down;
+				vu[i]->right = vu[i]->right->right;
+			}
+		}
+		std::copy(uv, uv + maxhu, quur);
+		std::copy(vu, vu + maxhu, quud);
+		std::copy(uv, uv + maxhu, qvvr);
+		std::copy(vu, vu + maxhu, qvvd);
+		pij->right = pvv->right;
+		std::for_each(qvvr, qvvr + std::min(maxhu, hvv), iter_right_func);
+		std::for_each(qvvd, qvvd + std::min(maxhu, hvv), iter_down_func);
+		std::copy(qvvd, qvvd + maxhu, iter_left);
+		std::copy(qvvr, qvvr + maxhu, iter_above);
+		for (const HeightType h : hu) {
+			iter_above[0] = iter_above[0]->right;
+			iter_left[0] = iter_left[0]->down;
+			iter_above[i]->down = iter_above[i]->down->down->down;
+			iter_left[i]->right = iter_left[i]->right->right->right;
+			for (HeightType i = 1; i < h; ++i) {
+				assert((iter_above[i] == qvvr[i]) == (iter_left[i] == qvvd[i]));
+				if (iter_above[i] != qvvr[i])
+					push_up_node(iter_above[i], iter_left[i]);
+				iter_above[i] = iter_above[i]->right;
+				iter_left[i] = iter_left[i]->down;
+				if (i < huu) {
+					iter_above[i]->down = iter_above[i]->down->down;
+					iter_left[i]->right = iter_above[i]->right->right;
+				}
+				if (i < hvv) {
+					iter_above[i]->down = iter_above[i]->down->down;
+					iter_left[i]->right = iter_left[i]->right->right;
+				}
+			}
+		}
+		for (HeightType i = 1; i < maxhu; ++i) {
+			assert(iter_above[i] == uu[i]);
+			assert(iter_left[i] == uu[i]);
+			push_up_node(uu[i]);
+		}
+		const IndexType v = pvv->data[0].i;
+		assert(pvv->data[0].j == v);
+		std::tuple <T, IndexType, IndexType> ret(std::numeric_limits<T>::max(), -1, -1);
+		IndexType u;
+		if (flag != (maxhv == 0)) {
+			for (IndexType u = 0; u < v; ++u)
+				ret = std::min(ret, std::tuple <T, IndexType, IndexType> (get_value(u, v), u, v));
+			for (IndexType u = v + 1; u < n; ++u)
+				ret = std::min(ret, std::tuple <T, IndexType, IndexType> (get_value(u, v), u, v));
+			IndexType u = std::get<1>(ret);
+			potential[v] += std::get<0>(ret);
+		}
+		else {
+			for (IndexType u = 0; u < v; ++u)
+				ret = std::min(ret, std::tuple <T, IndexType, IndexType> (get_value(v, u), v, u));
+			for (IndexType u = v + 1; u < n; ++u)
+				ret = std::min(ret, std::tuple <T, IndexType, IndexType> (get_value(v, u), v, u));
+			IndexType u = std::get<2>(ret);
+			potential[v] -= std::get<0>(ret);
+		}
+		size_t R = 0;
+		while (pij->right->data[0].i != u) {
+			pij = pij->right;
+			std::iota(uu, uu + pij->ht, pij->right->data);
+			std::iota(quur, quur + std::min(huu, pij->ht), quur[0]->down);
+			std::iota(quud, quud + std::min(huu, pij->ht), quud[0]->right);
+			std::iota(qvvr, qvvr + std::min(hvv, pij->ht), qvvr[0]->down);
+			std::iota(qvvd, qvvd + std::min(hvv, pij->ht), qvvd[0]->right);
+			++R;
+		}
+		hu.insert(hu.end(), hu.begin(), hu.begin() + R);
+		hu.erase(hu.begin(), hu.begin() + R);
+		quu->i = quu->j = quv->i = qvu->j = u;
+		qvv->i = qvv->j = qvu->i = quv->j = v;
+		for (HeightType i = 0; i < std::min({ maxhu, huu, hvv }); ++i) {
+			quv[i].right = quud[i]->right;
+			qvu[i].down  = quur[i]->down;
+			quur[i]->down = quud[i]->right = &quu[i];
+			qvv[i].right = qvvd[i]->right;
+			qvv[i].down  = qvvr[i]->down;
+			qvvd[i]->right = &qvu[i];
+			qvvr[i]->down = &quv[i];
+			quud[i] = &quv[i];
+			quur[i] = &qvu[i];
+			qvvr[i] = qvvd[i] = &qvv[i];
+		}
+		for (HeightType i = hvv; i < std::min(huu, maxhu); ++i) {
+			quu[i].right = quud[i]->right;
+			quu[i].down = quur[i]->down;
+			quur[i] = quud[i] = quur[i]->down = quud[i]->right = &quu[i];
+		}
+		for (HeightType i = huu; i < std::min(hvv, maxhu); ++i) {
+			qvv[i].right = qvvd[i]->right;
+			qvv[i].down = qvvr[i]->down;
+			qvvd[i] = qvvr[i] = qvvd[i]->right = qvvr[i]->down = &qvv[i];
+		}
+		std::copy(uu, uu + maxhu, iter_above);
+		std::copy(uu, uu + maxhu, iter_left);
+		for (const HeightType h : hu) {
+			iter_above[0] = iter_above[0]->right;
+			iter_left[0] = iter_left[0]->down;
+			quud[0] = quud[0]->right;
+			qvvd[0] = qvvd[0]->right;
+			quur[0] = quur[0]->down;
+			qvvr[0] = qvvr[0]->down;
+			quud[0]->i = quur[0]->j = u;
+			qvvd[0]->i = qvvr[0]->j = v;
+			assert(iter_above[0]->j == iter_left[0]->i);
+			quud[0]->j = quur[0]->i = qvvd[0]->j = qvvr[0]->i = iter_above[0]->j;
+			qvvd[0]->down = iter_above[0]->down;
+			qvvr[0]->right = iter_left[0]->right;
+			iter_above[0]->down = quud[0];
+			iter_left[0]->right = quur[0];
+			for (HeightType i = 1; i < h; ++i) {
+				if (iter_above[i] != uu[i])
+					push_up_node(iter_above[i], iter_left[i]);
+				iter_above[i] = iter_above[i]->right;
+				iter_left[i] = iter_left[i]->down;
+				if (i < huu) {
+					if (quud[i] != quur[i])
+						push_up_node(quud[i], quur[i]);
+					quud[i] = quud[i]->right;
+					quur[i] = quur[i]->down;
+				}
+				if (i < hvv) {
+					if (qvvd[i] != qvvr[i])
+						push_up_node(qvvd[i], qvvr[i]);
+					qvvd[i] = qvvd[i]->right;
+					qvvr[i] = qvvr[i]->down;
+					qvvd[i]->down = iter_above[i]->down;
+					qvvr[i]->right = iter_left[i]->right;
+				}
+				else if (i < huu) {
+					quud[i]->down = iter_above[i]->down;
+					quur[i]->right = iter_left[i]->right;
+				}
+				if (i < huu) {
+					iter_above[i]->down = quud[i];
+					iter_left[i]->right = quur[i];
+				}
+				else if (i < hvv) {
+					iter_above[i]->down = qvvd[i];
+					iter_left[i]->right = qvvr[i];
+				}
+			}
+		}
+		for (HeightType i = 1; i < std::max({ maxhu, huu, hvv }); ++i) {
+			if (i < maxhu)
+				push_up_node(uu[i]);
+			if (i < huu)
+				push_up_node(&quu[i]);
+			if (i < hvv)
+				push_up_node(&qvv[i]);
+		}
+		return ret;
+	}
+	std::for_each(uv, uv + std::min(maxhu, huu), iter_right_func);
+	std::for_each(vu, vu + std::min(maxhu, huu), iter_down_func);
 	node *const qvv = pvv->ptr, *const quu = puu->ptr, *const quv = uv[0]->down->right, *const qvu = vu[0]->down->right;
 	for (HeightType i = 0; i < huu; ++i) {
 		if (i < maxhu) {
@@ -496,27 +668,19 @@ std::tuple <T, IndexType, IndexType> ett<T, IndexType>::cut(pnode *puu, pnode *p
 	typename node::DataType ret; {
 		const node *const basis = flag ? iter_above[minh - 1] : iter_left[minh - 1];
 		ret = basis->data;
-		assert((ret.i == EDGE) == (ret.j == EDGE));
-		if (ret.i == EDGE)
-			minval = std::numeric_limits<T>::max();
-		else
-			minval = get_value(ret);
+		minval = get_value(ret);
 		size_t n = 1;
 		for (const node *p = basis->right; p != basis; ++n, p = p->right) {
-			assert((p->data.i != EDGE) == (p->data.j != EDGE));
 			assert(node::isTop(p));
-			if (p->data.i != EDGE)
-				if (auto nval = get_value(p->data); std::make_tuple(nval, p->data.i, p->data.j) < std::make_tuple(minval, ret.i, ret.j))
-					minval = nval, ret = p->data;
+			if (auto nval = get_value(p->data); std::make_tuple(nval, p->data.i, p->data.j) < std::make_tuple(minval, ret.i, ret.j))
+				minval = nval, ret = p->data;
 		}
 		for (const node *q = basis->down; q != basis; q = q->down) {
 			const node *p = q;
 			for (size_t j = 0; j < n; ++j, p = p->right) {
-				assert((p->data.i != EDGE) == (p->data.j != EDGE));
 				assert(node::isTop(p));
-				if (p->data.i != EDGE)
-					if (auto nval = get_value(p->data); std::make_tuple(nval, p->data.i, p->data.j) < std::make_tuple(minval, ret.i, ret.j))
-						minval = nval, ret = p->data;
+				if (auto nval = get_value(p->data); std::make_tuple(nval, p->data.i, p->data.j) < std::make_tuple(minval, ret.i, ret.j))
+					minval = nval, ret = p->data;
 			}
 			assert(p == q);
 		}
@@ -527,12 +691,10 @@ std::tuple <T, IndexType, IndexType> ett<T, IndexType>::cut(pnode *puu, pnode *p
 		newu = ret.i, newv = ret.j;
 		minval = -minval;
 	}
-	assert(minval != std::numeric_limits<T>::max());
-	for (pnode *q = pvv->right; q != puu; q = q->right)
-		if (q->data() != EDGE) {
-			assert(q->data() >= 0 && q->data() < n);
-			potential[q->data()] += minval;
-		}
+	for (pnode *q = pvv->right; q != puu; q = q->right) {
+		assert(q->data() >= 0 && q->data() < n);
+		potential[q->data()] += minval;
+	}
 	minval = *std::min_element(potential, potential + n);
 	std::for_each(potential, potential + n, [minval](T &x) { x -= minval; });
 	pij->right = pvv->right;
@@ -847,25 +1009,20 @@ std::tuple <T, IndexType, IndexType> ett<T, IndexType>::cut(pnode *puu, pnode *p
 		if (hvv > ht)
 			basis = qvv, ht = hvv;
 		ret = basis->data;
-		assert((ret.i != EDGE) == (ret.j != EDGE));
-		retval = ret.i == EDGE ? std::numeric_limits<T>::max() : get_value(ret);
+		retval = get_value(ret);
 		size_t n = 1;
 		for (const node *p = basis->right; p != basis; p = p->right, ++n) {
-			assert((p->data.i != EDGE) == (p->data.j != EDGE));
 			assert(node::isTop(p));
-			if (p->data.i != EDGE)
-				if (auto nval = get_value(p->data); std::make_tuple(nval, p->data.i, p->data.j) < std::make_tuple(retval, ret.i, ret.j))
-					retval = nval, ret = p->data;
+			if (auto nval = get_value(p->data); std::make_tuple(nval, p->data.i, p->data.j) < std::make_tuple(retval, ret.i, ret.j))
+				retval = nval, ret = p->data;
 		}
 		const node *q = basis->down;
 		for (size_t i = 1; i < n; ++i, q = q->down) {
 			const node *p = q;
 			for (size_t j = 0; j < n; ++j, p = p->right) {
-				assert((p->data.i != EDGE) == (p->data.j != EDGE));
 				assert(node::isTop(p));
-				if (p->data.i != EDGE)
-					if (auto nval = get_value(p->data); std::make_tuple(nval, p->data.i, p->data.j) < std::make_tuple(retval, ret.i, ret.j))
-						retval = nval, ret = p->data;
+				if (auto nval = get_value(p->data); std::make_tuple(nval, p->data.i, p->data.j) < std::make_tuple(retval, ret.i, ret.j))
+					retval = nval, ret = p->data;
 			}
 			assert(p == q);
 		}
@@ -886,35 +1043,40 @@ std::tuple <IndexType, IndexType, typename ett<T, IndexType>::pnode*, typename e
 #endif
 	const size_t n = alloc->_Size++;
 	if (n == std::numeric_limits<T>::max())
-		throw std::length_error("Maximum node number: " + std::to_string(std::numeric_limits<T>::max() - 1));
-	const size_t m = 3 * n - 2;
+		throw std::length_error("Maximum node number: " + std::to_string(std::numeric_limits<T>::max()));
+	const size_t m = 2 * n - 2;
 	assert(_arr.size() == n || (_arr.size() == n + 1 && _arr.back() == T()));
 	reserve(n + 1);
-	if (n == 0) {
-		alloc->top = alloc->pvex[0] = alloc->pnode_malloc();
-		potential[0] = 0;
-		HeightType h = alloc->pvex[0]->ht;
-		node *ptr = alloc->node_malloc(h);
-		alloc->pvex[0]->right = alloc->pvex[0]; alloc->pvex[0]->ptr = ptr;
-		const typename node::DataType orig = {
-			.i = 0,
-			.j = 0
-		};
-		for (HeightType i = 0; i < h; ++i) {
-			ptr[i].down = ptr[i].right = &ptr[i];
-			ptr->data = orig;
-		}
-		return std::tuple<IndexType, IndexType, pnode*, pnode*>();
-	}
-	std::copy(_arr.begin(), _arr.end(), distance + n * (n - 1) / 2);
-	pnode *const q[3] = { alloc->pnode_malloc(), alloc->pnode_malloc(), alloc->pnode_malloc() };
-	const HeightType HT[3] = { q[0]->ht, q[1]->ht, q[2]->ht };
+	pnode *const q[2] = { alloc->pnode_malloc(), alloc->pnode_malloc() };
+	std::copy(_arr.begin(), _arr.begin() + n, distance + n * (n - 1) / 2);
+	const HeightType HT[2] = { q[0]->ht, q[1]->ht };
 	if (alloc->top->ht < q[0]->ht)
 		alloc->top = q[0];
 	if (alloc->top->ht < q[1]->ht)
 		alloc->top = q[1];
-	if (alloc->top->ht < q[2]->ht)
-		alloc->top = q[2];
+	if (n == 1) {
+		q[0]->right = q[1];
+		q[1]->right = q[0];
+		potential[!flag] = 0;
+		potential[flag] = _arr[0];
+		node *const p[2][2] = { alloc->node_alloc(HT[0]), alloc->node_alloc(std::min(HT[0], HT[1])), alloc->node_alloc(std::min(HT[0], HT[1])), alloc->node_alloc(HT[1]) };
+		for (HeightType h = 0; h < std::min(HT[0], HT[1]); ++h)
+			for (int i = 0; i < 2; ++i)
+				for (int j = 0; j < 2; ++j) {
+					p[i][j ^ 1][h].right = p[i ^ 1][h][h].down = &p[i][j][h];
+					p[i][j][h].data.i = i;
+					p[i][j][h].data.j = j;
+				}
+		for (HeightType h = HT[0]; h < HT[1]; ++h) {
+			p[0][0][h].data.i = p[0][0][h].data.j = 0;
+			p[0][0][h].right = p[0][0][h].down = &p[0][0][h];
+		}
+		for (HeightType h = HT[1]; h < HT[0]; ++h) {
+			p[1][1][h].data.i = p[1][1][h].data.j = 0;
+			p[1][1][h].right = p[1][1][h].down = &p[1][1][h];
+		}
+		return std::tuple<IndexType, IndexType, pnode*, pnode*>(!flag, flag, q[!flag], q[flag]);
+	}
 	size_t u = 0;
 	if (flag) {
 		T pn = potential[0] + _arr[0];
@@ -931,26 +1093,19 @@ std::tuple <IndexType, IndexType, typename ett<T, IndexType>::pnode*, typename e
 		potential[n] = pn;
 	}
 	static node* head[64];
-	memset(head, 0, sizeof(head));
-	static std::vector <HeightType> qht; qht.clear(); qht.reserve(m);
-	pnode *quu = alloc->pvex[u];
-	for (pnode *q = quu->right; q != quu; q = q->right) {
-		qht.push_back(q->ht);
-		std::iota(&head[1], &head[q->ht], &q->ptr[1]);
-	}
-	qht.push_back(quu->ht);
-	std::iota(head, head + quu->ht, quu->ptr);
+	static std::vector <HeightType> qht; qht.reserve(m);
+	pnode *const quu = get_pnode(u, qht, head);
 	const HeightType maxht = std::find(head, head + 64, nullptr) - head;
-	static node *rnode[64], *dnode[64], *rtail[3][64], *dtail[3][64], *rhead[3][64], *dhead[3][64];
-	memset(rtail, 0, sizeof(rtail));
-	memset(dtail, 0, sizeof(dtail));
+	static node *rnode[64], *dnode[64], *rtail[2][64], *dtail[2][64], *rhead[2][64], *dhead[2][64];
+	std::fill(rnode, rnode + 64, nullptr);
+	std::fill(dnode, dnode + 64, nullptr);
 	for (HeightType i = 0; i < maxht; ++i) {
 		rnode[i] = head[i];
 		dnode[i] = head[i];
 	}
-	node *p[3][3];
-	for (int i = 2; i >= 0; --i)
-		for (int j = 2; j >= 0; --j) {
+	node *p[2][2];
+	for (int i = 1; i >= 0; --i)
+		for (int j = 1; j >= 0; --j) {
 			HeightType ht = std::min(HT[i], HT[j]);
 			p[i][j] = alloc->node_malloc(ht);
 			for (HeightType k = 0; k < ht; ++k) {
@@ -966,69 +1121,46 @@ std::tuple <IndexType, IndexType, typename ett<T, IndexType>::pnode*, typename e
 				dtail[j][k] = &p[i][j][k];
 			}
 		}
-	const typename node::DataType orig = {
-		.i = IndexType(n),
-		.j = IndexType(n)
-	};
-	p[1][1]->data = orig;
-	for (HeightType k = 1; k < std::max(HT[1], HT[2]); ++k) {
-		if (k < HT[1] && rtail[1][k] != &p[1][1][k]) {
-			assert(rtail[1][k] == &p[1][0][k]);
-			assert(dtail[1][k] == &p[0][1][k]);
-			p[1][1][k].data = orig;
-			if (k < HT[2]) {
-				p[2][1][k].data.i = p[2][1][k].data.j =
-					p[1][2][k].data.i = p[1][2][k].data.j =
-					p[2][2][k].data.i = p[2][2][k].data.j = -1;
-			}
-		}
-		else if (k < HT[2] && rtail[2][k] != &p[2][2][k])
-			p[2][2][k].data = orig;
+	for (Heighttype k = 0; k < std::min(HT[0], HT[1]); ++k) {
+		p[0][0][k].data.i = p[0][0][k].data.j = p[0][1][k].data.i = p[1][0][k].data.j = n;
+		p[1][1][k].data.i = p[1][1][k].data.j = p[1][0][k].data.i = p[0][1][k].data.j = u;
 	}
+	for (HeightType k = HT[0]; k < HT[1]; ++k)
+		p[0][0][k].data.i = p[0][0][k].data.j = n;
+	for (HeightType k = HT[1]; k < HT[0]; ++k)
+		p[1][1][k].data.i = p[1][1][k].data.j = u;
 	q[0]->ptr = p[0][0];
 	q[1]->ptr = p[1][1];
-	q[2]->ptr = p[2][2];
 	q[0]->right = quu->right;
 	q[1]->right = q[0];
-	q[2]->right = q[1];
-	quu->right = q[2];
-	alloc->pvex[n] = q[1];
-	std::tuple <IndexType, IndexType, pnode*, pnode*> ret;
-	if (flag)
-		ret = std::make_tuple(u, n, q[2], q[0]);
-	else
-		ret = std::make_tuple(n, u, q[0], q[2]);
+	quu->right = q[1];
+	const std::tuple <IndexType, IndexType, pnode*, pnode*> ret = flag ? std::make_tuple(u, n, q[1], q[0]) : std::make_tuple(n, u, q[0], q[1]);
 	assert(qht.size() == m);
 	for (HeightType h : qht) {
-		const HeightType ht[3] = { std::min(HT[0], h), std::min(HT[1], h), std::min(HT[2], h) };
-		node *const PR[3] = { alloc->node_malloc(ht[0]), alloc->node_malloc(ht[1]), alloc->node_malloc(ht[2]) }, *const PD[3] = { alloc->node_malloc(ht[0]), alloc->node_malloc(ht[1]), alloc->node_malloc(ht[2]) };
+		const HeightType ht[2] = { std::min(HT[0], h), std::min(HT[1], h) };
+		node *const PR[2] = { alloc->node_malloc(ht[0]), alloc->node_malloc(ht[1]) }, *const PD[2] = { alloc->node_malloc(ht[0]), alloc->node_malloc(ht[1]) };
 		rnode[0] = rnode[0]->right;
 		dnode[0] = dnode[0]->down;
 		assert(rnode[0]->data.j == dnode[0]->data.i);
-		if (IndexType j = rnode[0]->data.j; j != EDGE) {
-			PR[1]->data.j = PD[1]->data.i = j;
-			PR[1]->data.i = PD[1]->data.j = n;
-		}
+		const IndexType j = rnode[0]->data.j;
+		PR[1]->data.j = PD[1]->data.i = PR[0]->data.j = PD[0]->data.i = j;
+		PR[1]->data.i = PD[1]->data.j = u; PR[0]->data.i = PD[1]->data.j = n;
 		PR[0]->down = rnode[0]->down;
 		PR[1]->down = PR[0];
-		PR[2]->down = PR[1];
-		rnode[0]->down = PR[2];
+		rnode[0]->down = PR[1];
 		PD[0]->right = dnode[0]->right;
 		PD[1]->right = PD[0];
-		PD[2]->right = PD[1];
-		dnode[0]->right = PD[2];
-		rtail[0][0] = rtail[0][0]->right = PR[0];
-		rtail[1][0] = rtail[1][0]->right = PR[1];
-		rtail[2][0] = rtail[2][0]->right = PR[2];
-		dtail[0][0] = dtail[0][0]->down = PD[0];
-		dtail[1][0] = dtail[1][0]->down = PD[1];
-		dtail[2][0] = dtail[2][0]->down = PD[2];
+		dnode[0]->right = PD[1];
+		for (int _ = 0; _ < 2; ++_) {
+			rtail[_][0] = rtail[_][0]->right = PR[_];
+			dtail[_][0] = dtail[_][0]->down = PD[_];
+		}
 		for (HeightType j = 1; j < h; ++j) {
 			if (rnode[j] != dnode[j])
 				push_up_node(rnode[j], dnode[j]);
 			rnode[j] = rnode[j]->right;
 			dnode[j] = dnode[j]->down;
-			for (int _ = 0; _ < 3; ++_)
+			for (int _ = 0; _ < 2; ++_)
 				if (j < HT[_]) {
 					rtail[_][j]->right = &PR[_][j];
 					PR[_][j].down = rnode[j]->down;
@@ -1045,11 +1177,11 @@ std::tuple <IndexType, IndexType, typename ett<T, IndexType>::pnode*, typename e
 				}
 		}
 	}
-	for (int i = 0; i < 3; ++i) {
+	for (int i = 0; i < _; ++i) {
 		rtail[i][0]->right = rhead[i][0];
 		dtail[i][0]->down = dhead[i][0];
 	}
-	for (HeightType k = 1; k < std::max( { maxht, HT[0], HT[1], HT[2] } ); ++k) {
+	for (HeightType k = 1; k < std::max({ maxht, HT[0], HT[1] }); ++k) {
 		if (k < maxht)
 			push_up_node(head[k]);
 		for (int i = 0; i < 3; ++i)
@@ -1069,15 +1201,12 @@ template <typename T, typename IndexType>
 void ett<T, IndexType>::push_up_node(node *ptr) {
 	assert(!node::isTop(&ptr[-1]));
 	typename node::DataType mindata = ptr[-1].data;
-	assert((mindata.i != EDGE) == (mindata.j != EDGE));
-	T minv = mindata.i == EDGE ? std::numeric_limits<T>::max() : get_value(mindata);
+	T minv = get_value(mindata);
 	size_t n = 1;
 	for (const node *p = ptr[-1].right; p != &ptr->right[-1]; p = p->right, ++n) {
-		assert((p->data.i != EDGE) == (p->data.j != EDGE));
 		assert(node::isTop(p));
-		if (p->data.i != EDGE)
-			if (auto nval = get_value(p->data); std::make_tuple(nval, p->data.i, p->data.j) < std::make_tuple(minv, mindata.i, mindata.j))
-				minv = nval, mindata = p->data;
+		if (auto nval = get_value(p->data); std::make_tuple(nval, p->data.i, p->data.j) < std::make_tuple(minv, mindata.i, mindata.j))
+			minv = nval, mindata = p->data;
 	}
 #ifdef PUSH_UP_LOG
 	++push_up_cnt;
@@ -1113,15 +1242,10 @@ void ett<T, IndexType>::push_up_node(node *cr, node *cd) {
 	std::pair p(&cr[-1], &cd[-1]);
 	size_t n = 0;
 	auto push_up = [&minr, &mind, this](std::pair <node*, node*> p) {
-		assert((p.first->data.i == EDGE) == (p.second->data.j == EDGE));
-		assert((p.first->data.i == EDGE) == (p.first->data.j == EDGE));
-		assert((p.second->data.i == EDGE) == (p.second->data.j == EDGE));
-		if (p.first->data.i != EDGE) {
-			if (std::tuple nval(get_value(p.first->data), p.first->data.i, p.first->data.j); nval < minr)
-				minr = nval;
-			if (std::tuple nval(get_value(p.second->data), p.second->data.i, p.second->data.j); nval < mind)
-				mind = nval;
-		}
+		if (std::tuple nval(get_value(p.first->data), p.first->data.i, p.first->data.j); nval < minr)
+			minr = nval;
+		if (std::tuple nval(get_value(p.second->data), p.second->data.i, p.second->data.j); nval < mind)
+			mind = nval;
 	};
 	do {
 		push_up(p);
@@ -1138,36 +1262,6 @@ void ett<T, IndexType>::push_up_node(node *cr, node *cd) {
 	}
 	cr->data = { .i = std::get<1>(minr), .j = std::get<2>(minr) };
 	cd->data = { .i = std::get<1>(mind), .j = std::get<2>(mind) };
-	/*
-	std::tuple <T, IndexType, IndexType> minr, mind;
-	minr = mind = std::make_tuple(std::numeric_limits<T>::max(), EDGE, EDGE);
-	std::pair <node*, node*> q(&cr[-1], &cd[-1]), terp(&cr->down[-1], &cd->right[-1]);
-	const std::pair <node*, node*> terq(&cr->right[-1], &cd->down[-1]);
-	do {
-		std::pair <node*, node*> p(q);
-		q = std::make_pair(q.first->right, q.second->down);
-		do {
-#ifdef PUSH_UP_LOG
-			++push_up_n;
-#endif
-			assert((p.first->data.i == EDGE) == (p.second->data.j == EDGE));
-			assert((p.first->data.i == EDGE) == (p.first->data.j == EDGE));
-			assert((p.second->data.i == EDGE) == (p.second->data.j == EDGE));
-			if (p.first->data.i != EDGE) {
-				if (std::tuple nval(get_value(p.first->data), p.first->data.i, p.first->data.j); nval < minr)
-					minr = nval;
-				if (std::tuple nval(get_value(p.second->data), p.second->data.i, p.second->data.j); nval < mind)
-					mind = nval;
-			}
-			p = std::make_pair(p.first->down, p.second->right);
-			assert((p.first == terp.first) == (p.second == terp.second));
-		} while (p.first != terp.first);
-		terp = std::make_pair(terp.first->right, terp.second->down);
-		assert((q.first == terq.first) == (q.second == terq.second));
-	} while (q.first != terq.first);
-	cr->data = { .i = std::get<1>(minr), .j = std::get<2>(minr) };
-	cd->data = { .i = std::get<1>(mind), .j = std::get<2>(mind) };
-	*/
 #ifdef PUSH_UP_LOG
 	push_up_time += std::chrono::system_clock::now().time_since_epoch().count();
 #endif
@@ -1239,7 +1333,6 @@ void ett<T, IndexType>::reserve(size_t capacity) {
 template <typename T, typename IndexType>
 void ett<T, IndexType>::allocator::reserve(size_t capacity) {
 	const size_t newN = capacity;
-	pvex = (pnode**)realloc(pvex, newN * sizeof(void*));
 	_Cap = capacity;
 }
 
@@ -1254,7 +1347,7 @@ template <typename T, typename IndexType>
 ett <T, IndexType>::ett(): potential(nullptr), distance(nullptr), alloc(new allocator()) {}
 
 template <typename T, typename IndexType>
-ett <T, IndexType>::allocator::allocator(): _Cap(0), _Size(0), unallocatedNodeChunkSize(0), unallocatedPNodeChunkSize(0), pvex(nullptr), top(nullptr), _AllocatedNodePool(), _AllocatedPNodePool() {}
+ett <T, IndexType>::allocator::allocator(): _Cap(0), _Size(1), unallocatedNodeChunkSize(0), unallocatedPNodeChunkSize(0), top(nullptr), _AllocatedNodePool(), _AllocatedPNodePool() {}
 
 #ifndef NDEBUG
 template <typename T, typename IndexType>
@@ -1280,10 +1373,30 @@ ett <T, IndexType>::~ett() {
 
 template <typename T, typename IndexType>
 ett<T, IndexType>::allocator::~allocator() {
-	free(pvex);
 	for (void* ptr: _AllocatedNodePool)
 		free(ptr);
 	for (void* ptr: _AllocatedPNodePool)
 		free(ptr);
 }
 
+template <typename T, typename IndexType>
+ett<T, IndexType>::pnode* ett<T, IndexType>::get_pnode(IndexType u, std::vector <typename ett<T, IndexType>::HeightType> &qht, ett<T, IndexType>::node* head[64]) {
+	std::fill(head, head + 64, nullptr);
+	static std::vector <HeightType> qend; qend.clear(); qht.clear();
+	pnode* p = alloc->top;
+	while (p->ptr->data.i != u) {
+		qend.push_back(p->ht);
+		std::iota(&head[0], &head[p->ht], &p->ptr[0]);
+		p = p->right;
+	}
+	pnode *const puu = p;
+	const HeightType maxht = std::find(head, head + 64, nullptr) - head;
+	do {
+		qht.push_back(p->ht);
+		if (maxht < p->ht)
+			std::iota(&head[maxht], &head[p->ht], &p->ptr[maxht]);
+		p = p->right;
+	} while (p != alloc->top);
+	qht.insert(qht.end(), qend.begin(), qend.end());
+	return puu;
+}

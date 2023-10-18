@@ -120,12 +120,11 @@ emd<_PointType, _FlowType, _CostType, IndexType>::emd(const auto &p, const auto 
 #endif
 	assert(points.size() == flows.size());
 	assert(std::accumulate(flows.begin(), flows.end(), _FlowType()) == _FlowType());
-	const size_t n = f.size(), m = 3 * n - 2;
+	const size_t n = f.size(), m = 2 * n - 2;
 	assert(n > 0);
 	assert(n < std::numeric_limits<IndexType>::max());
 	cost_tree.potential = (_CostType*)std::malloc(n * sizeof(_CostType));
 	cost_tree.distance = (_CostType*)std::malloc(n * (n - 1) / 2 * sizeof(_CostType));
-	cost_tree.alloc->pvex = (typename ett<_CostType, IndexType>::pnode**)malloc(n * sizeof(void*));
 	cost_tree.alloc->_Cap = cost_tree.alloc->_Size = n;
 	for (size_t i = 1; i < n; ++i) {
 		for (size_t j = 0; j < i; ++j) {
@@ -197,7 +196,7 @@ emd<_PointType, _FlowType, _CostType, IndexType>::emd(const auto &p, const auto 
 	std::vector <typename __gnu_pbds::priority_queue <std::pair <double, IndexType> >::point_iterator> it(n);
 	std::vector <uint8_t> vis(n);
 	std::vector <IndexType> deg(n), prec(n);
-	std::fill(prec.begin(), prec.end(), (ett<_CostType, IndexType>::EDGE));
+	std::fill(prec.begin(), prec.end(), ~IndexType());
 	__gnu_pbds::priority_queue <std::pair <double, IndexType> > pq;
 	it[0] = pq.push(std::make_pair(0, 0)); prec[0] = 0;
 	for (size_t i = 0; i < n; ++i) {
@@ -280,14 +279,14 @@ emd<_PointType, _FlowType, _CostType, IndexType>::emd(const auto &p, const auto 
 	std::vector <std::tuple <_CostType, IndexType, IndexType> > ga(n * n, std::tuple <_CostType, IndexType, IndexType> (std::numeric_limits<_CostType>::max(), -1, -1));
 	IndexType num_clusters = 0;
 	for (IndexType i = 0; i < n; ++i)
-		if (label[i] == ett<_CostType, IndexType>::EDGE) {
+		if (label[i] == IndexType(-1)) {
 			ga[num_clusters * n + num_clusters] = std::make_tuple(0, num_clusters, num_clusters);
 			stk.push_back(i); label[i] = num_clusters;
 			cost_tree.potential[i] = 0;
 			while (!stk.empty()) {
 				IndexType u = stk.back(); stk.pop_back();
 				for (IndexType v = 0; v < n; ++v)
-					if (label[v] == (ett<_CostType, IndexType>::EDGE)) {
+					if (label[v] == IndexType(-1)) {
 						if (flows[u] > 0 && flows[v] <= 0 && net.flow(di.arcFromId(newidx[u] * demand_list.size() + newidx[v])) > 0) {
 							assert(flows[v] < 0);
 							label[v] = num_clusters;
@@ -345,7 +344,7 @@ emd<_PointType, _FlowType, _CostType, IndexType>::emd(const auto &p, const auto 
 		while (!stk.empty()) {
 			IndexType u = stk.back(); stk.pop_back();
 			for (IndexType v = 0; v < n; ++v)
-				if (prec[v] == (ett<_CostType, IndexType>::EDGE) && ((flows[u] > 0 && flows[v] <= 0 && net.flow(di.arcFromId(newidx[u] * demand_list.size() + newidx[v])) > 0) || (flows[v] > 0 && flows[u] <= 0 && net.flow(di.arcFromId(newidx[v] * demand_list.size() + newidx[u])) > 0))) {
+				if (prec[v] == IndexType(-1) && ((flows[u] > 0 && flows[v] <= 0 && net.flow(di.arcFromId(newidx[u] * demand_list.size() + newidx[v])) > 0) || (flows[v] > 0 && flows[u] <= 0 && net.flow(di.arcFromId(newidx[v] * demand_list.size() + newidx[u])) > 0))) {
 					prec[v] = u;
 					stk.push_back(v);
 				}
@@ -388,7 +387,7 @@ emd<_PointType, _FlowType, _CostType, IndexType>::emd(const auto &p, const auto 
 		auto &[u, i] = dfsstk.back();
 		if (i == gl[u].size()) {
 			std::get<4>(ge[u]) = tour.size();
-			tour.emplace_back(-1);
+			tour.emplace_back(u);
 			dfsstk.pop_back();
 		}
 		else {
@@ -400,8 +399,7 @@ emd<_PointType, _FlowType, _CostType, IndexType>::emd(const auto &p, const auto 
 			cost_tree.potential[v] = cost_tree.potential[u] + (w > 0 || (w == 0 && flows[u] > flows[v]) ? cost_tree[u][v] : -cost_tree[u][v]);
 			dfsstk.emplace_back(v, 0);
 			std::get<3>(ge[v]) = tour.size();
-			tour.emplace_back(-1);
-			tour.emplace_back(v);
+			tour.emplace_back(u);
 		}
 	}
 	assert(dfsstk.size() == 1);
@@ -410,7 +408,7 @@ emd<_PointType, _FlowType, _CostType, IndexType>::emd(const auto &p, const auto 
 	std::for_each(lctvertex.begin(), lctvertex.end(), [](auto &x) { x.reset(lct::add_node<_FlowType>()); });
 	edges.reserve(n);
 	typename ett<_CostType, IndexType>::pnode *PNodeChunk = (typename ett<_CostType, IndexType>::pnode*)malloc(m * sizeof(typename ett<_CostType, IndexType>::pnode));
-	cost_tree.alloc->top = cost_tree.alloc->pvex[0] = PNodeChunk;
+	cost_tree.alloc->top = PNodeChunk;
 	cost_tree.alloc->_AllocatedPNodePool.emplace_back(PNodeChunk);
 	for (auto [u, v, w, p1, p2] : ge) {
 #ifdef DEBUG
@@ -439,12 +437,8 @@ emd<_PointType, _FlowType, _CostType, IndexType>::emd(const auto &p, const auto 
 	for (size_t i = 1; i < m; ++i) {
 		typename ett<_CostType, IndexType>::node *const ptr = cost_tree.alloc->node_malloc(ht[i]);
 		std::tuple <_CostType, IndexType, IndexType> val;
-		if (tour[i] == ett<_CostType, IndexType>::EDGE)
-			std::get<1>(val) = std::get<2>(val) = -1,
-			std::get<0>(val) = std::numeric_limits<_CostType>::max();
-		else
-			std::get<1>(val) = 0, std::get<2>(val) = tour[i],
-			std::get<0>(val) = cost_tree.get_value({ .i = 0, .j = tour[i] });
+		std::get<1>(val) = 0, std::get<2>(val) = tour[i],
+		std::get<0>(val) = cost_tree.get_value({ .i = 0, .j = tour[i] });
 		for (typename ett<_CostType, IndexType>::HeightType j = 0; j < ht[i]; ++j) {
 			if (minv[j + 1] > minv[j])
 				minv[j + 1] = minv[j];
@@ -468,29 +462,20 @@ emd<_PointType, _FlowType, _CostType, IndexType>::emd(const auto &p, const auto 
 		PNodeChunk[i].ht = ht[i];
 		const IndexType label = tour[i];
 		std::iota(left, left + ht[i], PNodeChunk[i].ptr);
-		if (label != ett<_CostType, IndexType>::EDGE)
-			cost_tree.alloc->pvex[label] = &PNodeChunk[i];
 		for (typename ett<_CostType, IndexType>::HeightType j = 0; j < ht[i]; ++j) {
 			if (minv[j + 1] > minv[j])
 				minv[j + 1] = minv[j];
 			above[j]->data = { .i = std::get<1>(minv[j]), .j = std::get<2>(minv[j]) };
 			above[j] = above[j]->right;
 			above[j]->down = &PNodeChunk[i].ptr[j];
-			minv[j] = std::tuple <_CostType, IndexType, IndexType> (
-					label != ett<_CostType, IndexType>::EDGE ?
-					0 : std::numeric_limits<_CostType>::max(),
-					label, label);
+			minv[j] = std::tuple <_CostType, IndexType, IndexType> (0, label, label);
 		}
 		for (size_t j = i + 1; (j = j == m ? 0 : j) != i; ++j) {
 			const typename ett<_CostType, IndexType>::HeightType h = std::min(ht[i], ht[j]);
 			typename ett<_CostType, IndexType>::node *const ptr = cost_tree.alloc->node_malloc(h);
 			std::tuple <_CostType, IndexType, IndexType> val;
-			if (label != ett<_CostType, IndexType>::EDGE && tour[j] != ett<_CostType, IndexType>::EDGE)
-				std::get<1>(val) = label, std::get<2>(val) = tour[j],
-				std::get<0>(val) = cost_tree.get_value({ .i = label, .j = tour[j] });
-			else
-				std::get<1>(val) = std::get<2>(val) = -1,
-				std::get<0>(val) = std::numeric_limits<_CostType>::max();
+			std::get<1>(val) = label, std::get<2>(val) = tour[j],
+			std::get<0>(val) = cost_tree.get_value({ .i = label, .j = tour[j] });
 			for (typename ett<_CostType, IndexType>::HeightType k = 0; k < h; ++k) {
 				if (minv[k + 1] > minv[k])
 					minv[k + 1] = minv[k];
@@ -506,7 +491,7 @@ emd<_PointType, _FlowType, _CostType, IndexType>::emd(const auto &p, const auto 
 				above[k] = above[k]->right;
 				std::get<1>(minv[k]) = above[k]->data.i,
 				std::get<2>(minv[k]) = above[k]->data.j,
-				std::get<0>(minv[k]) = above[k]->data.i == ett<_CostType, IndexType>::EDGE ? std::numeric_limits<_CostType>::max() : cost_tree.get_value(above[k]->data);
+				std::get<0>(minv[k]) = cost_tree.get_value(above[k]->data);
 			}
 		}
 		for (typename ett<_CostType, IndexType>::HeightType j = 0; j < ht[i]; ++j) {
@@ -517,7 +502,7 @@ emd<_PointType, _FlowType, _CostType, IndexType>::emd(const auto &p, const auto 
 			above[j] = &PNodeChunk[i].ptr[j];
 			std::get<1>(minv[j]) = PNodeChunk[i].ptr[j].data.i,
 			std::get<2>(minv[j]) = PNodeChunk[i].ptr[j].data.j,
-			std::get<0>(minv[j]) = PNodeChunk[i].ptr[j].data.i == ett<_CostType, IndexType>::EDGE ? std::numeric_limits<_CostType>::max() : cost_tree.get_value(PNodeChunk[i].ptr[j].data);
+			std::get<0>(minv[j]) = cost_tree.get_value(PNodeChunk[i].ptr[j].data);
 		}
 	}
 	for (typename ett<_CostType, IndexType>::HeightType j = 0; j < maxht; ++j) {
@@ -538,8 +523,7 @@ emd<_PointType, _FlowType, _CostType, IndexType>::emd(const auto &p, const auto 
 					std::tuple <_CostType, IndexType, IndexType> minv(std::numeric_limits<_CostType>::max(), -1, -1);
 					for (size_t I = i; I < m && (I == i || ht[I] < k); ++I)
 						for (size_t J = j; J < m && (J == j || ht[J] < k); ++J) 
-							if (tour[i] != ett<_CostType, IndexType>::EDGE && tour[j] != ett<_CostType, IndexType>::EDGE)
-								minv = std::min(minv, std::make_tuple(cost_tree.get_value({ .i = tour[i], .j = tour[j] }), tour[i], tour[j]));
+							minv = std::min(minv, std::make_tuple(cost_tree.get_value({ .i = tour[i], .j = tour[j] }), tour[i], tour[j]));
 					assert(std::get<1>(minv) == q->data.i);
 					assert(std::get<2>(minv) == q->data.j);
 				}
@@ -554,8 +538,6 @@ emd<_PointType, _FlowType, _CostType, IndexType>::emd(const auto &p, const auto 
 #endif
 #if defined(SINKHORN) or not defined(NDEBUG)
 	for (auto [minval, from, to] = minv[maxht]; minval < 0; ) {
-		assert(from != (ett<_CostType, IndexType>::EDGE));
-		assert(to != (ett<_CostType, IndexType>::EDGE));
 		auto [e, f] = lct::sendflow(lctvertex[to].get(), lctvertex[from].get());
 		total_cost += minval * f;
 		auto it = edges.find(e);
@@ -608,8 +590,6 @@ void emd<_PointType, _FlowType, _CostType, IndexType>::modify(IndexType i, const
 #endif
 	for (std::tuple <_CostType, IndexType, IndexType> minv = cost_tree.min(); assert(minv == check()), std::get<0>(minv) < 0; ) {
 		auto [minval, from, to] = minv;
-		assert(from != (ett<_CostType, IndexType>::EDGE));
-		assert(to != (ett<_CostType, IndexType>::EDGE));
 		auto [e, f] = lct::sendflow(lctvertex[to].get(), lctvertex[from].get());
 		total_cost += minval * f;
 		auto it = edges.find(e);
