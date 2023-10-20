@@ -81,11 +81,16 @@ class ett {
 	void _reserve(size_t capacity);
 	inline void push_up_node(node *ptr);
 	inline void push_up_node(node *cr, node *cd);
+#ifndef DEBUG
 	void check();
+#endif
 	pnode* get_pnode(IndexType u, std::vector <HeightType> &qht, node* head[]);
 public:
 #ifndef NDEBUG
 	static std::mt19937_64 rng;
+#endif
+#ifdef DEBUG
+	void check();
 #endif
 	template <bool k>
 	std::tuple <T, IndexType, IndexType> cut(pnode *u, pnode *v);
@@ -124,7 +129,7 @@ void ett<T, IndexType>::update_node(IndexType u) {
 #endif
 	static node *uu[64];
 	static std::vector <HeightType> hu; hu.reserve(2 * size() - 2);
-	pnode *ptr = get_pnode<false>(u, hu, uu);
+	pnode *ptr = get_pnode(u, hu, uu);
 	assert(hu.size() == size() * 2 - 2);
 	while (true) {
 		const HeightType maxhu = alloc->top->ht;
@@ -268,7 +273,7 @@ std::tuple <T, IndexType, IndexType> ett<T, IndexType>::cut(pnode *puu, pnode *p
 		assert(pvv->right == puu);
 		if (flag) {
 			std::swap(potential[0], potential[1]);
-			if (puu->data() == 0) {
+			if (puu->data() == 1) {
 				check();
 				assert(potential[0] >= potential[1]);
 				return std::tuple <T, IndexType, IndexType>(2 * (potential[0] - potential[1]), 1, 0);
@@ -316,6 +321,7 @@ std::tuple <T, IndexType, IndexType> ett<T, IndexType>::cut(pnode *puu, pnode *p
 		if (maxhu == 0) {
 			std::swap(puu, pvv);
 			std::swap(huu, hvv);
+			std::swap(pij, pji);
 			std::swap(hu, hv);
 			std::copy(vv, vv + maxhv, uu);
 		}
@@ -375,7 +381,7 @@ std::tuple <T, IndexType, IndexType> ett<T, IndexType>::cut(pnode *puu, pnode *p
 			assert(iter_left[i] == uu[i]);
 			push_up_node(uu[i]);
 		}
-		const IndexType v = pvv->data();
+		const IndexType v = puu->data();
 		std::tuple <T, IndexType, IndexType> ret(std::numeric_limits<T>::max(), -1, -1);
 		IndexType u;
 		const bool f = flag != (maxhv == 0);
@@ -396,7 +402,7 @@ std::tuple <T, IndexType, IndexType> ett<T, IndexType>::cut(pnode *puu, pnode *p
 			potential[v] -= std::get<0>(ret);
 		}
 		size_t R = 0;
-		while (pij->right->data() != u) {
+		while (pij->data() != u) {
 			pij = pij->right;
 			std::iota(uu, uu + pij->ht, pij->ptr);
 			std::iota(quur, quur + std::min(huu, pij->ht), quur[0]->down);
@@ -409,8 +415,8 @@ std::tuple <T, IndexType, IndexType> ett<T, IndexType>::cut(pnode *puu, pnode *p
 		hu.erase(hu.begin(), hu.begin() + R);
 		pvv->right = pij->right;
 		pij->right = puu;
-		quu->data.i = quu->data.j = quv->data.i = qvu->data.j = u;
-		qvv->data.i = qvv->data.j = qvu->data.i = quv->data.j = v;
+		quu->data.i = quu->data.j = quv->data.i = qvu->data.j = v;
+		qvv->data.i = qvv->data.j = qvu->data.i = quv->data.j = u;
 		for (HeightType i = 0; i < std::min({ maxh, huu, hvv }); ++i) {
 			quv[i].right = quud[i]->right;
 			qvu[i].down  = quur[i]->down;
@@ -445,8 +451,8 @@ std::tuple <T, IndexType, IndexType> ett<T, IndexType>::cut(pnode *puu, pnode *p
 			evvd = evvd->right;
 			euur = euur->down;
 			evvr = evvr->down;
-			euud[0].data.i = euur[0].data.j = u;
-			evvd[0].data.i = evvr[0].data.j = v;
+			euud[0].data.i = euur[0].data.j = v;
+			evvd[0].data.i = evvr[0].data.j = u;
 			assert(iter_above[0]->data.j == iter_left[0]->data.i);
 			euud[0].data.j = euur[0].data.i = evvd[0].data.j = evvr[0].data.i = iter_above[0]->data.j;
 			evvd[0].down = iter_above[0]->down;
@@ -457,15 +463,15 @@ std::tuple <T, IndexType, IndexType> ett<T, IndexType>::cut(pnode *puu, pnode *p
 				assert(i >= huu || i >= hvv || quud[i]->down == qvvd[i]);
 				assert(i >= huu || i >= hvv || quur[i]->right == qvvr[i]);
 				node *r = iter_above[i], *d = iter_left[i];
-				iter_above[i] = iter_above[i]->right;
-				iter_left[i] = iter_left[i]->down;
-				if (iter_above[i] != uu[i]) {
+				if (r != d) {
 					push_up_node(r, d);
 					if (i < huu)
 						push_up_node(r = r->down, d = d->right);
 					if (i < hvv)
 						push_up_node(r = r->down, d = d->right);
 				}
+				iter_above[i] = iter_above[i]->right;
+				iter_left[i] = iter_left[i]->down;
 				if (i < hvv) {
 					evvd[i].down = iter_above[i]->down;
 					evvr[i].right = iter_left[i]->right;
@@ -502,7 +508,7 @@ std::tuple <T, IndexType, IndexType> ett<T, IndexType>::cut(pnode *puu, pnode *p
 				push_up_node(&qvv[i]);
 		}
 		check();
-		return f ? min() : ret;
+		return flag ? ret : min();
 	}
 	std::for_each(uv, uv + std::min(maxhu, huu), iter_right_func);
 	std::for_each(vu, vu + std::min(maxhu, huu), iter_down_func);
@@ -752,7 +758,7 @@ std::tuple <T, IndexType, IndexType> ett<T, IndexType>::cut(pnode *puu, pnode *p
 	pij->right = pvv->right;
 	pji->right = puu->right;
 	size_t R = 0;
-	while (pij->right->data() != newu) {
+	while (pij->data() != newu) {
 		pij = pij->right;
 		std::iota(uu, uu + pij->ht, pij->ptr);
 		assert(pij->ht == hu[R]);
@@ -768,7 +774,7 @@ std::tuple <T, IndexType, IndexType> ett<T, IndexType>::cut(pnode *puu, pnode *p
 	hu.insert(hu.end(), hu.begin(), hu.begin() + R);
 	hu.erase(hu.begin(), hu.begin() + R);
 	R = 0;
-	while (pji->right->data() != newv) {
+	while (pji->data() != newv) {
 		pji = pji->right;
 		std::iota(vv, vv + pji->ht, pji->ptr);
 		assert(pji->ht == hv[R]);
@@ -872,8 +878,8 @@ std::tuple <T, IndexType, IndexType> ett<T, IndexType>::cut(pnode *puu, pnode *p
 	memcpy(iter_left,  uv, sizeof(iter_left));
 	memcpy(iter_right, uu, sizeof(iter_right));
 	node *edge_above = qvv, *edge_below = quv, *edge_left = qvv, *edge_right = qvu;
-	quu->data.i = quu->data.j = quv->data.i = qvu->data.j = newu;
-	qvv->data.i = qvv->data.j = qvu->data.i = quv->data.j = newv;
+	quu->data.i = quu->data.j = quv->data.i = qvu->data.j = newv;
+	qvv->data.i = qvv->data.j = qvu->data.i = quv->data.j = newu;
 	enable = 0;
 	for (HeightType h : hu) {
 		for (HeightType i = 0; i < h; ++i) {
@@ -905,8 +911,8 @@ std::tuple <T, IndexType, IndexType> ett<T, IndexType>::cut(pnode *puu, pnode *p
 		edge_left  = edge_left->down;
 		edge_right = edge_right->down;
 		assert(iter_above[0]->data.j == iter_below[0]->data.j && iter_left[0]->data.i == iter_right[0]->data.i && iter_above[0]->data.j == iter_left[0]->data.i);
-		edge_above->data.i = edge_left->data.j = newv;
-		edge_below->data.i = edge_right->data.j = newu;
+		edge_above->data.i = edge_left->data.j = newu;
+		edge_below->data.i = edge_right->data.j = newv;
 		edge_above->data.j = edge_left->data.i = edge_below->data.j = edge_right->data.i = iter_above[0]->data.j;
 		for (HeightType i = 0; i < std::min(h, hvv); ++i) {
 			edge_above[i].down = iter_below[i]->down;
@@ -993,8 +999,8 @@ std::tuple <T, IndexType, IndexType> ett<T, IndexType>::cut(pnode *puu, pnode *p
 		edge_left  = edge_left->down;
 		edge_right = edge_right->down;
 		assert(iter_above[0]->data.j == iter_below[0]->data.j && iter_left[0]->data.i == iter_right[0]->data.i && iter_above[0]->data.j == iter_left[0]->data.i);
-		edge_above->data.i = edge_left->data.j = newu;
-		edge_below->data.i = edge_right->data.j = newv;
+		edge_above->data.i = edge_left->data.j = newv;
+		edge_below->data.i = edge_right->data.j = newu;
 		edge_above->data.j = edge_left->data.i = edge_below->data.j = edge_right->data.i = iter_above[0]->data.j;
 		for (HeightType i = 0; i < std::min(h, huu); ++i) {
 			edge_above[i].down = iter_below[i]->down;
@@ -1061,35 +1067,6 @@ std::tuple <T, IndexType, IndexType> ett<T, IndexType>::cut(pnode *puu, pnode *p
 		if (i < std::min(huu, hvv))
 			push_up_node(&qvu[i], &quv[i]);
 	}
-/*	if (!flag) {
-		const node *basis = uu[maxhu - 1];
-		HeightType ht = maxhu;
-		if (maxhv > ht)
-			basis = vv[maxhv - 1], ht = maxhv;
-		if (huu > ht)
-			basis = quu, ht = huu;
-		if (hvv > ht)
-			basis = qvv, ht = hvv;
-		ret = basis->data;
-		retval = get_value(ret);
-		size_t n = 1;
-		for (const node *p = basis->right; p != basis; p = p->right, ++n) {
-			assert(node::isTop(p));
-			if (auto nval = get_value(p->data); std::make_tuple(nval, p->data.i, p->data.j) < std::make_tuple(retval, ret.i, ret.j))
-				retval = nval, ret = p->data;
-		}
-		const node *q = basis->down;
-		for (size_t i = 1; i < n; ++i, q = q->down) {
-			const node *p = q;
-			for (size_t j = 0; j < n; ++j, p = p->right) {
-				assert(node::isTop(p));
-				if (auto nval = get_value(p->data); std::make_tuple(nval, p->data.i, p->data.j) < std::make_tuple(retval, ret.i, ret.j))
-					retval = nval, ret = p->data;
-			}
-			assert(p == q);
-		}
-		assert(q == basis);
-	}*/
 	check();
 	return flag ? std::make_tuple(retval, ret.i, ret.j) : min();
 }
@@ -1139,7 +1116,7 @@ std::tuple <IndexType, IndexType, typename ett<T, IndexType>::pnode*, typename e
 			p[1][1][h].right = p[1][1][h].down = &p[1][1][h];
 		}
 		check();
-		return std::tuple<IndexType, IndexType, pnode*, pnode*>(!flag, flag, q[!flag], q[flag]);
+		return std::tuple<IndexType, IndexType, pnode*, pnode*>(!flag, flag, q[flag], q[!flag]);
 	}
 	size_t u = 0;
 	if (flag) {
@@ -1185,8 +1162,8 @@ std::tuple <IndexType, IndexType, typename ett<T, IndexType>::pnode*, typename e
 				dtail[j][k] = &p[i][j][k];
 			}
 		}
-	p[1][1][0].data.i = p[1][1][0].data.j = p[1][0][0].data.i = p[0][1][0].data.j = u;
-	p[0][0][0].data.i = p[0][0][0].data.j = p[0][1][0].data.i = p[1][0][0].data.j = n;
+	p[1][1][0].data.i = p[1][1][0].data.j = p[1][0][0].data.i = p[0][1][0].data.j = n;
+	p[0][0][0].data.i = p[0][0][0].data.j = p[0][1][0].data.i = p[1][0][0].data.j = u;
 	q[0]->ptr = p[0][0];
 	q[1]->ptr = p[1][1];
 	q[0]->right = quu->right;
@@ -1202,7 +1179,7 @@ std::tuple <IndexType, IndexType, typename ett<T, IndexType>::pnode*, typename e
 		assert(rnode[0]->data.j == dnode[0]->data.i);
 		const IndexType j = rnode[0]->data.j;
 		PR[1]->data.j = PD[1]->data.i = PR[0]->data.j = PD[0]->data.i = j;
-		PR[1]->data.i = PD[1]->data.j = u; PR[0]->data.i = PD[0]->data.j = n;
+		PR[1]->data.i = PD[1]->data.j = n; PR[0]->data.i = PD[0]->data.j = u;
 		PR[0]->down = rnode[0]->down;
 		PR[1]->down = PR[0];
 		rnode[0]->down = PR[1];
@@ -1449,7 +1426,7 @@ ett<T, IndexType>::pnode* ett<T, IndexType>::get_pnode(IndexType u, std::vector 
 	while (true) {
 		qend.push_back(p->ht);
 		std::iota(&head[0], &head[p->ht], &p->ptr[0]);
-		if ((flag ? p->right : p)->data() == u)
+		if (p->data() == u)
 			break;
 		p = p->right;
 	}

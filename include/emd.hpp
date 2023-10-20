@@ -272,7 +272,7 @@ emd<_PointType, _FlowType, _CostType, IndexType>::emd(const auto &p, const auto 
 					else if (label[v] != num_clusters) {
 						if (flows[u] >= 0 && flows[v] <= 0)
 							ga[num_clusters * n + label[v]] = std::min(ga[num_clusters * n + label[v]], std::make_tuple(cost_tree.get_value({ .i = u, .j = v }), u, v));
-						else if (flows[v] >= 0 && flows[u] <= 0)
+						if (flows[v] >= 0 && flows[u] <= 0)
 							ga[label[v] * n + num_clusters] = std::min(ga[label[v] * n + num_clusters], std::make_tuple(cost_tree.get_value({ .i = v, .j = u }), v, u));
 					}
 			}
@@ -355,8 +355,8 @@ emd<_PointType, _FlowType, _CostType, IndexType>::emd(const auto &p, const auto 
 		auto &[u, i] = dfsstk.back();
 		if (i == gl[u].size()) {
 			std::get<4>(ge[u]) = tour.size();
-			tour.emplace_back(u);
 			dfsstk.pop_back();
+			tour.emplace_back(dfsstk.back().first);
 		}
 		else {
 			auto v = gl[u][i++];
@@ -367,7 +367,7 @@ emd<_PointType, _FlowType, _CostType, IndexType>::emd(const auto &p, const auto 
 			cost_tree.potential[v] = cost_tree.potential[u] + (w > 0 || (w == 0 && flows[u] > flows[v]) ? cost_tree[u][v] : -cost_tree[u][v]);
 			dfsstk.emplace_back(v, 0);
 			std::get<3>(ge[v]) = tour.size();
-			tour.emplace_back(u);
+			tour.emplace_back(v);
 		}
 	}
 	assert(dfsstk.size() == 1);
@@ -398,12 +398,11 @@ emd<_PointType, _FlowType, _CostType, IndexType>::emd(const auto &p, const auto 
 	PNodeChunk[m - 1].right = &PNodeChunk[0];
 	std::iota(left, left + maxht, basis);
 	PNodeChunk[0].ht = maxht;
-	std::fill(minv, minv + maxht + 1, std::tuple <_CostType, IndexType, IndexType> (0, 0, 0));
+	std::fill(minv, minv + maxht + 1, std::tuple <_CostType, IndexType, IndexType> (0, tour.front(), tour.front()));
 	for (size_t i = 1; i < m; ++i) {
 		typename ett<_CostType, IndexType>::node *const ptr = cost_tree.alloc->node_malloc(ht[i]);
 		std::tuple <_CostType, IndexType, IndexType> val;
-		std::get<1>(val) = 0, std::get<2>(val) = tour[i],
-		std::get<0>(val) = cost_tree.get_value({ .i = 0, .j = tour[i] });
+		std::get<0>(val) = cost_tree.get_value({ .i = std::get<1>(val) = tour.front(), .j = std::get<2>(val) = tour[i] });
 		for (typename ett<_CostType, IndexType>::HeightType j = 0; j < ht[i]; ++j) {
 			if (minv[j + 1] > minv[j])
 				minv[j + 1] = minv[j];
@@ -552,6 +551,9 @@ void emd<_PointType, _FlowType, _CostType, IndexType>::modify(IndexType i, const
 	static std::ofstream fout("log.txt");
 	size_t cnt = 0;
 	uint64_t t = 0;
+#endif
+#ifdef DEBUG
+	cost_tree.check();
 #endif
 	for (std::tuple <_CostType, IndexType, IndexType> minv = cost_tree.min(); assert(minv == check()), std::get<0>(minv) < 0; ) {
 		auto [minval, from, to] = minv;
