@@ -244,7 +244,6 @@ namespace lct {
 #endif
 		assert(v->minv[0] >= 0);
 		assert(v->minv[1] >= 0);
-		assert(v->minv[0] < std::numeric_limits<T>::max());
 		flow = std::min(flow, v->minv[0]);
 		add_val(v, flow);
 		return std::make_pair(v->minp[0], flow);

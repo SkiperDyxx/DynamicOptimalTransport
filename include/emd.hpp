@@ -101,9 +101,6 @@ emd<_PointType, _FlowType, _CostType, IndexType>&& emd<_PointType, _FlowType, _C
 	dist_func = std::move(val.dist_func);
 	erased_nodes = std::move(val.erased_nodes);
 	total_cost = val.total_cost;
-#ifdef PYBIND11_DETAILED_ERROR_MESSAGES
-	std::cout << "C++ Move: " << total_cost << '\n';
-#endif
 	return std::move(*this);
 }
 
@@ -147,13 +144,6 @@ emd<_PointType, _FlowType, _CostType, IndexType>::emd(const auto &p, const auto 
 	for (size_t i = 0; i < a.size(); ++i)
 		for (size_t j = 0; j < b.size(); ++j)
 			sk[i * b.size() + j] = cost_tree[a[i]][b[j]];
-#ifdef DEBUG
-	for (size_t i = 0; i < a.size(); ++i) {
-		for (size_t j = 0; j < b.size(); ++j)
-			std::cout << cost_tree[a[i]][b[j]] << ' ';
-		std::cout << '\n';
-	}
-#endif
 	std::copy(sk.begin(), sk.end(), seq.begin());
 	std::nth_element(seq.begin(), seq.begin() + a.size() + b.size() - 2, seq.end(), std::greater <double>());
 	double lambda = 60 / seq[a.size() + b.size() - 2];
@@ -186,13 +176,6 @@ emd<_PointType, _FlowType, _CostType, IndexType>::emd(const auto &p, const auto 
 			}
 		}
 	}
-#ifdef DEBUG
-	for (size_t i = 0; i < a.size(); ++i) {
-		for (size_t j = 0; j < b.size(); ++j)
-			std::cout << sk[i * b.size() + j] << ' ';
-		std::cout << '\n';
-	}
-#endif
 	std::vector <typename __gnu_pbds::priority_queue <std::pair <double, IndexType> >::point_iterator> it(n);
 	std::vector <uint8_t> vis(n);
 	std::vector <IndexType> deg(n), prec(n);
@@ -246,6 +229,8 @@ emd<_PointType, _FlowType, _CostType, IndexType>::emd(const auto &p, const auto 
 		supply_list.push_back(demand_list.back());
 		demand_list.pop_back();
 	}
+	const auto original_num_threads = omp_get_max_threads();
+	omp_set_num_threads(1);
 	lemon::FullBipartiteDigraph di(supply_list.size(), demand_list.size());
 	lemon::NetworkSimplexSimple <lemon::FullBipartiteDigraph, _FlowType, _CostType, ssize_t> net(di, true, flows.size(), supply_list.size() * demand_list.size());
 	for (size_t i = 0, ID = 0; i < n; ++i)
@@ -253,27 +238,11 @@ emd<_PointType, _FlowType, _CostType, IndexType>::emd(const auto &p, const auto 
 			for (size_t j = 0; j < n; ++j)
 				if (flows[j] <= 0) {
 					net.setCost(di.arcFromId(ID++), cost_tree[i][j]);
-#ifdef DEBUG
-					std::cout << cost_tree[i][j] << ' ';
-#endif
 				}
-#ifdef DEBUG
-			std::cout << '\n';
-#endif
 		}
 	net.supplyMap(&supply_list[0], supply_list.size(), &demand_list[0], demand_list.size());
 	net.run();
-#if defined(DEBUG)
-	std::cout << net.totalCost() << '\n';
-	for (size_t i = 0; i < supply_list.size(); ++i) {
-		for (size_t j = 0; j < demand_list.size(); ++j)
-			std::cout << net.flow(di.arcFromId(i * demand_list.size() + j)) << ' ';
-		std::cout << '\n';
-	}
-#endif
-#ifdef PYBIND11_DETAILED_ERROR_MESSAGES
-	std::cout << "C++: " << net.totalCost() << "when network flow completed.\n";
-#endif
+	omp_set_num_threads(original_num_threads);
 	std::vector <IndexType> stk; stk.reserve(n);
 	std::vector <IndexType> label(n, -1);
 	std::vector <std::tuple <_CostType, IndexType, IndexType> > ga(n * n, std::tuple <_CostType, IndexType, IndexType> (std::numeric_limits<_CostType>::max(), -1, -1));
@@ -381,7 +350,6 @@ emd<_PointType, _FlowType, _CostType, IndexType>::emd(const auto &p, const auto 
 	std::vector <std::pair <IndexType, IndexType> > dfsstk;
 	dfsstk.reserve(n);
 	dfsstk.emplace_back(0, 0);
-	tour.push_back(0);
 	cost_tree.potential[0] = 0;
 	for (size_t _ = 2; _ < 2 * n; ++_) {
 		auto &[u, i] = dfsstk.back();
@@ -411,9 +379,6 @@ emd<_PointType, _FlowType, _CostType, IndexType>::emd(const auto &p, const auto 
 	cost_tree.alloc->top = PNodeChunk;
 	cost_tree.alloc->_AllocatedPNodePool.emplace_back(PNodeChunk);
 	for (auto [u, v, w, p1, p2] : ge) {
-#ifdef DEBUG
-		std::cout << u << ' ' << v << ' ' << w << std::endl;
-#endif
 		if (w > 0 || (w == 0 && flows[u] >= flows[v]))
 			edges.emplace(lct::link(lctvertex[u].get(), lctvertex[v].get(), w), std::make_tuple(u, v, &PNodeChunk[p1], &PNodeChunk[p2]));
 		else
@@ -578,7 +543,7 @@ void emd<_PointType, _FlowType, _CostType, IndexType>::modify(IndexType i, const
 		auto [u, v, puu, pvv] = d;
 		if (_CostType old_val = cost_tree.get_value({ .i = u, .j = v }); old_val) {
 			total_cost += lct::get_flow(lctvertex[u].get(), lctvertex[v].get()) * old_val;
-			assert((u != i) + (v != i) == 1);
+			assert((u != i) != (v != i));
 			cost_tree.update_edge(puu, pvv, old_val);
 			assert(cost_tree.get_value({ .i = u, .j = v }) == 0);
 		}
