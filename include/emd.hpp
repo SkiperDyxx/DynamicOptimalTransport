@@ -525,6 +525,9 @@ emd<_PointType, _FlowType, _CostType, IndexType>::emd(const auto &p, const auto 
 		assert(cost_tree.get_value({ .i = u, .j = v }) == 0);
 	}
 #endif
+#ifdef DEBUG
+	cost_tree.check();
+#endif
 }
 
 template <typename _PointType, std::signed_integral _FlowType, std::signed_integral _CostType, std::integral IndexType>

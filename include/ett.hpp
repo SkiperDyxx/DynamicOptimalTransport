@@ -131,8 +131,9 @@ void ett<T, IndexType>::update_node(IndexType u) {
 	static std::vector <HeightType> hu; hu.reserve(2 * size() - 2);
 	pnode *ptr = get_pnode(u, hu, uu);
 	assert(hu.size() == size() * 2 - 2);
+	const HeightType maxhu = alloc->top->ht;
 	while (true) {
-		const HeightType maxhu = alloc->top->ht;
+		assert(hu.back() == ptr->ht);
 		static std::pair <node*, node*> iter[64];
 		for (HeightType i = 1; i < maxhu; ++i)
 			iter[i] = std::make_pair(uu[i], uu[i]);
@@ -147,12 +148,12 @@ void ett<T, IndexType>::update_node(IndexType u) {
 			push_up_node(uu[i]);
 		int R = 0;
 		do {
-			ptr = ptr->right;
+			ptr = ptr->right; ++R;
+			std::iota(uu, uu + ptr->ht, &ptr->ptr[0]);
 			if (ptr == alloc->top) {
 				check();
 				return;
 			}
-			std::iota(uu, uu + maxhu, &ptr->ptr[0]);
 		} while (ptr->data() != u);
 		hu.insert(hu.end(), hu.begin(), hu.begin() + R);
 		hu.erase(hu.begin(), hu.begin() + R);
