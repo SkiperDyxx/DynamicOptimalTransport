@@ -379,7 +379,7 @@ emd<_PointType, _FlowType, _CostType, IndexType>::emd(const auto &p, const auto 
 	cost_tree.alloc->top = PNodeChunk;
 	cost_tree.alloc->_AllocatedPNodePool.emplace_back(PNodeChunk);
 	for (auto [u, v, w, p1, p2] : ge) {
-		if (w > 0 || (w == 0 && flows[u] >= flows[v]))
+		if (cost_tree.get_value(u, v) == 0)
 			edges.emplace(lct::link(lctvertex[u].get(), lctvertex[v].get(), w), std::make_tuple(u, v, &PNodeChunk[p1], &PNodeChunk[p2]));
 		else
 			edges.emplace(lct::link(lctvertex[v].get(), lctvertex[u].get(), _FlowType(-w)), std::make_tuple(v, u, &PNodeChunk[p2], &PNodeChunk[p1]));

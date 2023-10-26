@@ -1137,14 +1137,16 @@ std::tuple <IndexType, IndexType, typename ett<T, IndexType>::pnode*, typename e
 	static node* head[64];
 	static std::vector <HeightType> qht; qht.reserve(m);
 	pnode* const quu = get_pnode(u, qht, head);
+	const HeightType maxht = alloc->top->ht;
 	if (alloc->top->ht < q[0]->ht)
 		alloc->top = q[0];
 	if (alloc->top->ht < q[1]->ht)
 		alloc->top = q[1];
-	const HeightType maxht = std::find(head, head + 64, nullptr) - head;
 	static node *rnode[64], *dnode[64], *rtail[2][64], *dtail[2][64];
 	std::fill(rnode, rnode + 64, nullptr);
 	std::fill(dnode, dnode + 64, nullptr);
+	std::fill(&rtail[0][0], &rtail[0][0] + sizeof(rtail) / sizeof(rtail[0][0]), nullptr);
+	std::fill(&dtail[0][0], &dtail[0][0] + sizeof(dtail) / sizeof(dtail[0][0]), nullptr);
 	for (HeightType i = 0; i < maxht; ++i) {
 		rnode[i] = head[i];
 		dnode[i] = head[i];
@@ -1206,8 +1208,6 @@ std::tuple <IndexType, IndexType, typename ett<T, IndexType>::pnode*, typename e
 					dnode[j]->right = &PD[_][j];
 					if (rtail[_][j] != dtail[_][j])
 						push_up_node(rtail[_][j], dtail[_][j]);
-					else
-						push_up_node(rtail[_][j]);
 					rtail[_][j] = &PR[_][j];
 					dtail[_][j] = &PD[_][j];
 				}
@@ -1219,15 +1219,16 @@ std::tuple <IndexType, IndexType, typename ett<T, IndexType>::pnode*, typename e
 	}
 	for (HeightType k = 1; k < std::max({ maxht, HT[0], HT[1] }); ++k) {
 		for (int i = 0; i < 2; ++i)
-			if (k < HT[i]) {
+			if (k < HT[i])
 				rtail[i][k]->right = dtail[i][k]->down = &p[i][i][k];
-				push_up_node(&p[i][i][k]);
-			}
 		if (k < std::min(HT[0], HT[1])) {
 			rtail[0][k]->right = &p[0][1][k];
 			dtail[0][k]->down = &p[1][0][k];
 			push_up_node(&p[1][0][k], &p[0][1][k]);
 		}
+		for (int i = 0; i < 2; ++i)
+			if (k < HT[i])
+				push_up_node(&p[i][i][k]);
 		if (k < maxht) {
 			push_up_node(head[k]);
 			for (int i = 1; i >= 0; --i)
