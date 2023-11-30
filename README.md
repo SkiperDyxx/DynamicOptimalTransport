@@ -1,6 +1,6 @@
 # DynamicOptimalTransport
 
-Source code for paper [A Novel Skip Orthogonal List for Dynamic Optimal Transport Problem](https://xyxu2033.github.io/pub/2023_dynamic_ot.pdf)
+Source code for paper [A Novel Skip Orthogonal List for Dynamic Optimal Transport Problem](https://arxiv.org/pdf/2310.18446.pdf)
 
 ## Install Dependencies
 
